@@ -206,10 +206,89 @@ extension SocketManager: Notifications {
                 return
             }
             
-            Api.sharedInstance.getChannelMember(channel: channel, completion: { error in
-                guard error == nil else { return }
+            if channel.privateType == Constants.ChannelType.DirectTypeChannel && channel.isDirectPrefered == false {
+                
+                var userId = channel.name?.components(separatedBy: "__").first
+                if userId == Preferences.sharedInstance.currentUserId {
+                    userId = channel.name?.components(separatedBy: "__").last
+                }
+                
+                if let user = RealmUtils.realmForCurrentThread().object(ofType: User.self, forPrimaryKey: userId) {
+                    Api.sharedInstance.createDirectChannelWith(user) { (channel, error) in
+                        guard error == nil else {
+                            AlertManager.sharedManager.showErrorWithMessage(message: (error?.message)!); return
+                        }
+                        
+                        try! RealmUtils.realmForCurrentThread().write {
+                            channel?.currentUserInChannel =  true
+                            channel?.isDirectPrefered = true
+                        }
+                        
+                        var value: String
+                        value = Constants.CommonStrings.True
+                        
+                        let preferences: [String : String] = [ "user_id"    : (DataManager.sharedInstance.currentUser?.identifier)!,
+                                                               "category"   : "direct_channel_show",
+                                                               "name"       : user.identifier,
+                                                               "value"      : value
+                        ]
+                        
+                        Api.sharedInstance.savePreferencesWith(preferences) { (error) in
+                            guard error == nil else {
+                                AlertManager.sharedManager.showErrorWithMessage(message: (error?.message)!)
+                                return
+                            }
+                            
+                            Api.sharedInstance.loadTeams(with: { (userShouldSelectTeam, error) in
+                                guard (error == nil) else {
+                                    AlertManager.sharedManager.showErrorWithMessage(message: (error?.message)!)
+                                    return
+                                }
+                                Api.sharedInstance.loadChannels { (error) in
+                                    guard error == nil else {
+                                        AlertManager.sharedManager.showErrorWithMessage(message: (error?.message)!)
+                                        return
+                                    }
+                                    
+                                    let preferences = Preference.preferedUsersList()
+                                    var usersIds = [String]()
+                                    preferences.forEach{ usersIds.append($0.name!) }
+                                    
+                                    Api.sharedInstance.loadUsersListBy(ids: usersIds) { (error) in
+                                        guard error == nil else {
+                                            AlertManager.sharedManager.showErrorWithMessage(message: (error?.message)!)
+                                            return
+                                        }
+                                        
+                                        let predicate = NSPredicate(format: "identifier != %@ AND identifier != %@", Preferences.sharedInstance.currentUserId!,
+                                                                    Constants.Realm.SystemUserIdentifier)
+                                        let users = RealmUtils.realmForCurrentThread().objects(User.self).filter(predicate)
+                                        var ids = [String]()
+                                        users.forEach{ ids.append($0.identifier) }
+                                        
+                                        Api.sharedInstance.loadTeamMembersListBy(ids: ids) { (error) in
+                                            guard error == nil else {
+                                                AlertManager.sharedManager.showErrorWithMessage(message: (error?.message)!)
+                                                return
+                                            }
+                                            
+                                            NotificationCenter.default.post(name: NSNotification.Name(rawValue: Constants.NotificationsNames.ReloadLeftMenuNotification), object: nil)
+                                        }
+                                    }
+                                }
+                            })
+                        }
+                    }
+                }
+            } else {
+                //Api.sharedInstance.getChannelMember(channel: channel, completion: { error in
+                //    guard error == nil else { return }
                 NotificationCenter.default.post(name: NSNotification.Name(rawValue: Constants.NotificationsNames.ReloadLeftMenuNotification), object: nil)
-            })
+                //})
+                
+            }
+            
+            
         }
     }
     

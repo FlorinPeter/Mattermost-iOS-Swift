@@ -279,22 +279,28 @@ extension Api: TeamApi {
         let currentTeam = DataManager.sharedInstance.currentTeam
         let path = SOCStringFromStringWithObject(TeamPathPatternsContainer.teamMembersIds(), currentTeam)
         
-        self.manager.post(nil, path: path, parametersAs: ids, success: { (operation, mappingResult) in
-            let teamMembers = mappingResult?.array() as! [Member]
-            let realm = RealmUtils.realmForCurrentThread()
-            for teamMember in teamMembers {
-                let user = realm.object(ofType: User.self, forPrimaryKey: teamMember.userId)
-                try! realm.write {
-                    user?.isOnTeam = true
-                    user?.directChannel()?.isInterlocuterOnTeam = true
-                }
-            }
+        if ids.count == 0 {
             DispatchQueue.main.async {
                 completion(nil)
             }
-        }) { (operation, error) in
-            DispatchQueue.main.async {
+        } else {
+            self.manager.post(nil, path: path, parametersAs: ids, success: { (operation, mappingResult) in
+                let teamMembers = mappingResult?.array() as! [Member]
+                let realm = RealmUtils.realmForCurrentThread()
+                for teamMember in teamMembers {
+                    let user = realm.object(ofType: User.self, forPrimaryKey: teamMember.userId)
+                    try! realm.write {
+                        user?.isOnTeam = true
+                        user?.directChannel()?.isInterlocuterOnTeam = true
+                    }
+                }
+                DispatchQueue.main.async {
+                    completion(nil)
+                }
+            }) { (operation, error) in
+                    DispatchQueue.main.async {
                 completion(Error.errorWithGenericError(error))
+                }
             }
         }
     }
@@ -819,19 +825,25 @@ extension Api: UserApi {
     func loadUsersListBy(ids: [String], completion: @escaping (_ error: Mattermost.Error?) -> Void) {
         let path = UserPathPatternsContainer.usersByIdsPathPattern()
         
-        self.manager.post(path: path, arrayParameters: ids, success: { (operation, mappingResult) in
-            let responseDictionary = operation.httpRequestOperation.responseString!.toDictionary()
-            let users = MappingUtils.fetchUsersFrom(response: responseDictionary!)
-            users.forEach({ UserUtils.updateOnTeamAndPreferedStatesFor(user: $0) })
+        if(ids.count == 0) {
             DispatchQueue.main.async {
                 completion(nil)
             }
+        } else {
+            self.manager.post(path: path, arrayParameters: ids, success: { (operation, mappingResult) in
+                let responseDictionary = operation.httpRequestOperation.responseString!.toDictionary()
+                let users = MappingUtils.fetchUsersFrom(response: responseDictionary!)
+                users.forEach({ UserUtils.updateOnTeamAndPreferedStatesFor(user: $0) })
+                DispatchQueue.main.async {
+                    completion(nil)
+                }
 
-        }, failure: { (error) in
-            DispatchQueue.main.async {
-                completion(error)
-            }
-        })
+            }, failure: { (error) in
+                DispatchQueue.main.async {
+                    completion(error)
+                }
+            })
+        }
 
     }
     
